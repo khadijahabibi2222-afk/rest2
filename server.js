@@ -14,6 +14,19 @@ app.use(express.json({ limit: '5mb' }));
 // ---------- Health check (Render pings this to confirm the app is up) ----------
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
+// ---------- DB connection status — open this in browser to diagnose ----------
+app.get('/api/status', (req, res) => {
+  const mongoose = require('mongoose');
+  const states = { 0:'disconnected', 1:'connected', 2:'connecting', 3:'disconnecting' };
+  const state = states[mongoose.connection.readyState] || 'unknown';
+  res.json({
+    server: 'running',
+    database: state,
+    ready: mongoose.connection.readyState === 1,
+    mongo_uri_set: !!process.env.MONGO_URI,
+  });
+});
+
 // ---------- One-time seed (protected by x-seed-secret header) ----------
 app.use('/api/admin', require('./routes/seedRoutes'));
 
