@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
-
 const User = require('../models/User');
 const Category = require('../models/Category');
 const MenuItem = require('../models/MenuItem');
@@ -12,71 +11,51 @@ const InventoryCategory = require('../models/InventoryCategory');
 const ExpenseItem = require('../models/ExpenseItem');
 const Settings = require('../models/Settings');
 
-function checkSecret(req, res) {
-  const secret = process.env.SEED_SECRET || 'seed1234';
-  if (req.headers['x-seed-secret'] !== secret) {
-    res.status(403).json({ message: 'Forbidden — wrong x-seed-secret header' });
-    return false;
-  }
-  return true;
-}
-
-// GET /api/admin/status
+// ── GET /api/admin/status ── open this URL in browser to check DB
 router.get('/status', async (req, res) => {
-  const states = { 0:'disconnected', 1:'connected', 2:'connecting', 3:'disconnecting' };
-  const dbState = states[mongoose.connection.readyState] || 'unknown';
+  const states = {0:'disconnected',1:'connected',2:'connecting',3:'disconnecting'};
   try {
-    const userCount = mongoose.connection.readyState === 1 ? await User.countDocuments() : '?';
-    const settingsCount = mongoose.connection.readyState === 1 ? await Settings.countDocuments() : '?';
-    res.json({
-      database: dbState,
-      ready: mongoose.connection.readyState === 1,
-      mongo_uri_set: !!process.env.MONGO_URI,
-      db_name: mongoose.connection.name || '?',
-      users_in_db: userCount,
-      settings_in_db: settingsCount,
-    });
-  } catch (e) {
-    res.json({ database: dbState, error: e.message });
-  }
+    const ready = mongoose.connection.readyState === 1;
+    const users = ready ? await User.countDocuments() : '?';
+    const settings = ready ? await Settings.countDocuments() : '?';
+    res.json({ database: states[mongoose.connection.readyState], ready, db_name: mongoose.connection.name, users_in_db: users, settings_in_db: settings });
+  } catch(e) { res.json({ error: e.message }); }
 });
 
-// POST /api/admin/reset-admin  (force create/reset admin to admin/1234)
-router.post('/reset-admin', async (req, res) => {
-  if (!checkSecret(req, res)) return;
+// ── GET /api/admin/reset-admin?s=seed1234 ── open URL in browser → resets admin to admin/1234
+router.get('/reset-admin', async (req, res) => {
+  const secret = process.env.SEED_SECRET || 'seed1234';
+  if (req.query.s !== secret) {
+    return res.status(403).send('Wrong secret. Add ?s=YOUR_SEED_SECRET to the URL');
+  }
   try {
     const passwordHash = await bcrypt.hash('1234', 10);
-    const user = await User.findOneAndUpdate(
+    await User.findOneAndUpdate(
       { username: 'admin' },
-      {
-        name: 'احمد مدیر', username: 'admin', passwordHash,
-        role: 'manager', salary: 30000, phone: '0701000001',
-        joinDate: '1402-01-01', active: true
-      },
+      { name:'احمد مدیر', username:'admin', passwordHash, role:'manager', salary:30000, phone:'0701000001', joinDate:'1402-01-01', active:true },
       { upsert: true, new: true }
     );
-    res.json({ message: 'Admin reset. Login: admin / 1234', userId: user._id });
-  } catch (e) {
-    res.status(500).json({ message: e.message });
-  }
+    res.send('✅ Admin reset done! Go login: username=admin password=1234');
+  } catch(e) { res.status(500).send('Error: ' + e.message); }
 });
 
-// POST /api/admin/seed
-router.post('/seed', async (req, res) => {
-  if (!checkSecret(req, res)) return;
+// ── GET /api/admin/seed?s=seed1234 ── open URL in browser → full seed
+router.get('/seed', async (req, res) => {
+  const secret = process.env.SEED_SECRET || 'seed1234';
+  if (req.query.s !== secret) {
+    return res.status(403).send('Wrong secret. Add ?s=YOUR_SEED_SECRET to the URL');
+  }
   try {
     const existing = await Settings.findOne();
     if (existing) {
       const userCount = await User.countDocuments();
-      return res.json({
-        message: `Already seeded. Users in DB: ${userCount}. Call /api/admin/reset-admin to fix login.`
-      });
+      return res.send(`Already seeded. Users in DB: ${userCount}. Open /api/admin/reset-admin?s=${secret} to reset login.`);
     }
     const userDefs = [
-      { name:'احمد مدیر',      username:'admin',   password:'1234', role:'manager',  salary:30000, phone:'0701000001', joinDate:'1402-01-01' },
-      { name:'محمد گارسون',    username:'waiter1', password:'1234', role:'waiter',   salary:12000, phone:'0701000002', joinDate:'1402-03-01' },
-      { name:'علی آشپز',       username:'chef1',   password:'1234', role:'chef',     salary:18000, phone:'0701000003', joinDate:'1402-02-01' },
-      { name:'سارا خزانه‌دار',  username:'cash1',   password:'1234', role:'cashier',  salary:15000, phone:'0701000004', joinDate:'1402-04-01' },
+      { name:'احمد مدیر',     username:'admin',   password:'1234', role:'manager',  salary:30000, phone:'0701000001', joinDate:'1402-01-01' },
+      { name:'محمد گارسون',   username:'waiter1', password:'1234', role:'waiter',   salary:12000, phone:'0701000002', joinDate:'1402-03-01' },
+      { name:'علی آشپز',      username:'chef1',   password:'1234', role:'chef',     salary:18000, phone:'0701000003', joinDate:'1402-02-01' },
+      { name:'سارا خزانه‌دار', username:'cash1',   password:'1234', role:'cashier',  salary:15000, phone:'0701000004', joinDate:'1402-04-01' },
     ];
     for (const u of userDefs) {
       await User.create({ ...u, passwordHash: await bcrypt.hash(u.password, 10) });
@@ -94,7 +73,7 @@ router.post('/seed', async (req, res) => {
       { name:'دوغ',         desc:'دوغ محلی',      icon:'🥛', price:40,  catId:cats[2]._id, stock:80,  active:true },
       { name:'فرنی',        desc:'دیزرت سنتی',   icon:'🍮', price:80,  catId:cats[3]._id, stock:25,  active:true },
     ]);
-    await Table.insertMany(Array.from({length:10},(_,i)=>({ num:i+1, cap:i%3===0?6:4 })));
+    await Table.insertMany(Array.from({length:10},(_,i)=>({num:i+1, cap:i%3===0?6:4})));
     await InventoryCategory.insertMany(['مواد اولیه','گوشت','نوشیدنی','لبنیات'].map(n=>({name:n})));
     await InventoryItem.insertMany([
       { name:'برنج',          category:'مواد اولیه', qty:100, unit:'کیلو', minQty:20, costPerUnit:80  },
@@ -106,14 +85,12 @@ router.post('/seed', async (req, res) => {
       ['اجاره','برق','آب','گاز','حقوق','خرید مواد','تجهیزات','تعمیرات','تبلیغات','سایر'].map(n=>({name:n}))
     );
     await Settings.create({
-      restaurantName:'رستورانت کابل', phone:'0700000000',
-      address:'کابل، افغانستان', currency:'AFN', taxRate:0, serviceCharge:0,
+      restaurantName:'رستورانت کابل', phone:'0700000000', address:'کابل، افغانستان',
+      currency:'AFN', taxRate:0, serviceCharge:0,
       currentDay: new Date().toISOString().slice(0,10), dayOpen:true, dayId:1, logo:'',
     });
-    res.json({ message:'Seed complete! Login: admin / 1234' });
-  } catch (e) {
-    res.status(500).json({ message: e.message });
-  }
+    res.send('✅ Seed complete! Login: admin / 1234');
+  } catch(e) { res.status(500).send('Error: ' + e.message); }
 });
 
 module.exports = router;
